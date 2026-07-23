@@ -32,17 +32,30 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-async function startServer() {
-  // 自動初始化示例用戶
+// Create the Express app and configure all routes
+let demoUsersInitialized = false;
+async function ensureDemoUsers() {
+  if (demoUsersInitialized) return;
+  demoUsersInitialized = true;
   try {
     await initializeDemoUsers();
-    console.log("Demo users initialized successfully");
+    console.log("[Server] Demo users initialized (lazy)");
   } catch (error) {
-    console.error("Failed to initialize demo users:", error);
+    console.error("[Server] Failed to initialize demo users:", error);
   }
+}
 
+export function createApp(): express.Express {
   const app = express();
-  const server = createServer(app);
+  // On Vercel, lazily initialize demo users on first request
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    app.use(async (_req, _res, next) => {
+      if (!demoUsersInitialized) {
+        await ensureDemoUsers();
+      }
+      next();
+    });
+  }
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -63,13 +76,29 @@ async function startServer() {
       createContext,
     })
   );
+  // Serve static files in production
+  serveStatic(app);
+  return app;
+}
+
+async function startServer() {
+  // 自動初始化示例用戶
+  try {
+    await initializeDemoUsers();
+    console.log("Demo users initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize demo users:", error);
+  }
+
+  const app = createApp();
+  const server = createServer(app);
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     console.log("[Server] Running in development mode with Vite");
     await setupVite(app, server);
   } else {
     console.log("[Server] Running in production mode with static files");
-    serveStatic(app);
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
@@ -84,9 +113,16 @@ async function startServer() {
   });
 }
 
-startServer().catch((error) => {
-  console.error("[Server] Failed to start:", error);
-  process.exit(1);
-});
-
-// Sync v2 - 20260723-042151
+// For Vercel serverless: the api/handler.js wrapper will call createApp()
+// For local/Manus Space: start the server
+const isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+if (!isVercel) {
+  // Auto-initialize demo users only in local development
+  initializeDemoUsers().catch((err) => {
+    console.warn("[Server] Demo users init:", err.message);
+  });
+  startServer().catch((error) => {
+    console.error("[Server] Failed to start:", error);
+    process.exit(1);
+  });
+}

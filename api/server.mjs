@@ -3656,15 +3656,27 @@ async function findAvailablePort(startPort = 3e3) {
   }
   throw new Error(`No available port found starting from ${startPort}`);
 }
-async function startServer() {
+var demoUsersInitialized = false;
+async function ensureDemoUsers() {
+  if (demoUsersInitialized) return;
+  demoUsersInitialized = true;
   try {
     await initializeDemoUsers();
-    console.log("Demo users initialized successfully");
+    console.log("[Server] Demo users initialized (lazy)");
   } catch (error) {
-    console.error("Failed to initialize demo users:", error);
+    console.error("[Server] Failed to initialize demo users:", error);
   }
+}
+function createApp() {
   const app = express3();
-  const server = createServer(app);
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    app.use(async (_req, _res, next) => {
+      if (!demoUsersInitialized) {
+        await ensureDemoUsers();
+      }
+      next();
+    });
+  }
   app.use(express3.json({ limit: "50mb" }));
   app.use(express3.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
@@ -3679,12 +3691,23 @@ async function startServer() {
       createContext
     })
   );
+  serveStatic(app);
+  return app;
+}
+async function startServer() {
+  try {
+    await initializeDemoUsers();
+    console.log("Demo users initialized successfully");
+  } catch (error) {
+    console.error("Failed to initialize demo users:", error);
+  }
+  const app = createApp();
+  const server = createServer(app);
   if (process.env.NODE_ENV === "development") {
     console.log("[Server] Running in development mode with Vite");
     await setupVite(app, server);
   } else {
     console.log("[Server] Running in production mode with static files");
-    serveStatic(app);
   }
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
@@ -3695,7 +3718,16 @@ async function startServer() {
     console.log(`[Server] Running on http://localhost:${port}/`);
   });
 }
-startServer().catch((error) => {
-  console.error("[Server] Failed to start:", error);
-  process.exit(1);
-});
+var isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+if (!isVercel) {
+  initializeDemoUsers().catch((err) => {
+    console.warn("[Server] Demo users init:", err.message);
+  });
+  startServer().catch((error) => {
+    console.error("[Server] Failed to start:", error);
+    process.exit(1);
+  });
+}
+export {
+  createApp
+};
