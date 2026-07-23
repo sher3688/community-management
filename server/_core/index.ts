@@ -88,3 +88,5 @@ startServer().catch((error) => {
   console.error("[Server] Failed to start:", error);
   process.exit(1);
 });
+
+// Sync v2 - 20260723-042151
