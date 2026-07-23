@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { residentsExportRouter } from "../residents-export";
 import { initializeDemoUsers } from "../password-auth";
 import uploadRoutes from "../upload-routes";
+import syncRoutes from "../sync-routes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -51,6 +52,9 @@ async function startServer() {
   app.use("/api/residents", residentsExportRouter);
   // File upload API
   app.use("/api", uploadRoutes);
+
+  // Sync API (bidirectional data sync)
+  app.use("/api", syncRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
